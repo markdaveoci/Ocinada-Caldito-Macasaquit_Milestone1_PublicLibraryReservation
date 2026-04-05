@@ -1,5 +1,229 @@
-public class Main {
-    public static void main (String[] args) {
+import java.util.Scanner;
 
+public class Main {
+    public static void main(String[] args) {
+
+        Scanner scanner = new Scanner(System.in);
+        Repository repo = new Repository();
+
+        System.out.println("\nPUBLIC LIBRARY SYSTEM" + "\nWelcome to the Public Library System. Visitors are required to check in upon arrival.\n");
+        System.out.println("[1] Check-in Visitor");
+
+        System.out.print("Choose: ");
+        int choice1 = scanner.nextInt();
+        scanner.nextLine();
+
+        switch (choice1) {
+            case 1:
+                boolean validVisitor = false;
+
+                while (!validVisitor) {
+                    System.out.println("\nCHECK IN VISITOR");
+
+                    System.out.print("Visitor Name: ");
+                    String name = scanner.nextLine();
+
+                    System.out.print("Address: ");
+                    String address = scanner.nextLine();
+
+                    System.out.print("Purpose of Visit: ");
+                    String purpose = scanner.nextLine();
+
+                    if (name.isEmpty() || address.isEmpty() || purpose.isEmpty()) {
+                        System.out.println("\nCheck-in failed. Please fill in all fields.");
+                    } else {
+                        Visitor visitor = new Visitor.VisitorBuilder()
+                                .setName(name)
+                                .setAddress(address)
+                                .setPurpose(purpose)
+                                .build();
+
+                        System.out.println("\nENTRY CONFIRMATION");
+                        System.out.println("Name: " + name);
+                        System.out.println("Address: " + address);
+                        System.out.println("Purpose: " + purpose);
+                        System.out.println("Confirmation: Complete information.");
+                        System.out.println("Status: IN");
+
+                        System.out.println("\nVisitor check-in successful. You may now proceed to the Circulation Desk.");
+                        System.out.print("\n");
+
+                        int visitorId = repo.checkInVisitor(visitor);
+
+                        System.out.println("Visitor ID: " + visitorId);
+
+                        validVisitor = true;
+                    }
+                }
+                break;
+
+            default:
+                System.out.println("Invalid choice.");
+        }
+
+        System.out.println("\nCIRCULATION DESK" + "\nWelcome to the Circulation Desk. All visitors are required to complete registration before accessing the Public Library Reservation System.\n");
+        System.out.println("[1] Register as a Patron");
+
+        System.out.print("Choose: ");
+        int choice2 = scanner.nextInt();
+        scanner.nextLine();
+
+        switch (choice2) {
+            case 1:
+
+                boolean validPatron = false;
+
+                while (!validPatron) {
+
+                    System.out.println("\nREGISTRATION");
+
+                    System.out.print("Patron Name: ");
+                    String pname = scanner.nextLine();
+
+                    System.out.print("Address: ");
+                    String address2 = scanner.nextLine();
+
+                    System.out.print("Membership Type: ");
+                    String membershipType = scanner.nextLine();
+
+                    if (pname.isEmpty() || address2.isEmpty() || membershipType.isEmpty()) {
+                        System.out.println("\nRegistration failed. Required fields are missing or invalid.");
+                    } else {
+                        Patron patron = new Patron(pname, address2, membershipType);
+                        repo.registerAsAPatron(patron);
+
+                        System.out.println("\nPatron ID " + patron.getPatronId() + " created successfully. You may now proceed to the Public Library Reservation System.");
+                        validPatron = true;
+                    }
+                }
+                break;
+
+            default:
+                System.out.println("Invalid choice.");
+        }
+
+        boolean running = true;
+
+        while (running) {
+
+            System.out.println("\nPUBLIC LIBRARY RESERVATION SYSTEM");
+            System.out.println("Welcome, Patron \n");
+            System.out.println("[1] Reserve Book");
+            System.out.println("[2] Cancel Book Reservation");
+            System.out.println("[3] View Book Reservation Status");
+            System.out.println("[4] Reserve Reference Material");
+            System.out.println("[5] Cancel Reserved Reference Material");
+            System.out.println("[6] View Reserved Reference Material Status");
+            System.out.println("[7] Log-out Patron");
+
+            System.out.print("Choose: ");
+            int choice3 = scanner.nextInt();
+            scanner.nextLine();
+
+            switch (choice3) {
+
+                case 1:
+                    repo.viewBooks();
+
+                    System.out.println("\nRESERVE BOOK");
+                    System.out.print("Enter Patron ID: ");
+                    int patronId = scanner.nextInt();
+                    System.out.print("Enter Book ID: ");
+                    int bookId = scanner.nextInt();
+                    System.out.print("\n");
+
+                    repo.reserveBook(patronId, bookId);
+                    break;
+
+                case 2:
+                    System.out.println("\nCANCEL BOOK RESERVATION");
+                    System.out.print("Reservation ID: ");
+                    int reservationId = scanner.nextInt();
+                    System.out.print("\n");
+
+                    repo.cancelBookReservation(reservationId);
+                    break;
+
+                case 3:
+                    System.out.println("\nVIEW BOOK RESERVATION STATUS");
+                    System.out.print("Enter Patron ID: ");
+                    int pid = scanner.nextInt();
+                    System.out.print("\n");
+
+                    repo.viewBookReservationStatus(pid);
+                    break;
+
+                case 4:
+                    repo.viewReferenceMaterials();
+
+                    System.out.println("\nRESERVE REFERENCE MATERIAL");
+                    System.out.print("Enter Patron ID: ");
+                    int rpatronId = scanner.nextInt();
+                    System.out.print("Enter Reference Material ID: ");
+                    int materialId = scanner.nextInt();
+                    System.out.print("\n");
+
+                    repo.reserveReferenceMaterial(rpatronId, materialId);
+                    break;
+
+                case 5:
+                    System.out.println("\nCANCEL RESERVED REFERENCE MATERIAL");
+                    System.out.print("Enter Reservation ID: ");
+                    int refReservationId = scanner.nextInt();
+                    System.out.print("\n");
+
+                    repo.cancelReservedReferenceMaterial(refReservationId);
+                    break;
+
+                case 6:
+                    System.out.println("\nVIEW RESERVED REFERENCE MATERIAL STATUS");
+                    System.out.print("Enter Patron ID: ");
+                    int patId = scanner.nextInt();
+                    System.out.print("\n");
+
+                    repo.viewReservedReferenceMaterialStatus(patId);
+                    break;
+
+                case 7:
+                    System.out.print("\n");
+                    System.out.println("Patron account successfully logged-out. You may now proceed for check-out.");
+                    running = false;
+                    break;
+
+                default:
+                    System.out.println("Invalid choice.");
+            }
+        }
+
+        boolean checkingOut = true;
+
+        while (checkingOut) {
+            System.out.println("\nPUBLIC LIBRARY SYSTEM");
+            System.out.println("[1] Check-out Visitor");
+
+            System.out.print("Choose: ");
+            int choice4 = scanner.nextInt();
+            scanner.nextLine();
+
+            switch (choice4) {
+                case 1:
+                    System.out.println("\nCHECK-OUT");
+                    System.out.print("Enter Visitor ID: ");
+                    int visitorIdCheckout = scanner.nextInt();
+                    scanner.nextLine();
+
+                    System.out.print("\n");
+
+                    repo.checkOutVisitor(visitorIdCheckout);
+
+                    System.out.println("\nSystem exiting after check-out.");
+                    System.exit(0);
+                    break;
+
+                default:
+                    System.out.println("Invalid choice. Try again.");
+            }
+        }
+        scanner.close();
     }
 }
