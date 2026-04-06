@@ -148,6 +148,184 @@ public class Repository {
             System.out.println(e.getMessage());
         }
     }
+    public void reserveBook(int patronId, int bookId) {
+
+        String checkPatron = "SELECT status FROM patrons WHERE patronId = ?";
+        String checkReservation =
+                "SELECT * FROM reservations WHERE bookId = ? AND status IN ('IN QUEUE', 'ON HOLD')";
+        String insertReservation =
+                "INSERT INTO reservations(patronId, bookId, status, estimatedAvailableDate) VALUES (?, ?, ?, ?)";
+
+        try (Connection conn = connect()) {
+
+            PreparedStatement pstmt1 = conn.prepareStatement(checkPatron);
+            pstmt1.setInt(1, patronId);
+            ResultSet rs1 = pstmt1.executeQuery();
+
+            if (!rs1.next() || !rs1.getString("status").trim().equalsIgnoreCase("ACTIVE")) {
+                System.out.println("Cannot reserve a book. The Patron account is not active.");
+                return;
+            }
+
+            PreparedStatement pstmt2 = conn.prepareStatement(checkReservation);
+            pstmt2.setInt(1, bookId);
+            ResultSet rs2 = pstmt2.executeQuery();
+
+            if (rs2.next()) {
+                System.out.println("Cannot reserve items as it is already on hold by another patron.");
+                return;
+            }
+
+            LocalDate today = LocalDate.now();
+            LocalDate estimatedDate = today.plusDays(7);
+
+            PreparedStatement pstmt3 = conn.prepareStatement(insertReservation, Statement.RETURN_GENERATED_KEYS);
+            pstmt3.setInt(1, patronId);
+            pstmt3.setInt(2, bookId);
+            pstmt3.setString(3, "IN QUEUE");
+            pstmt3.setDate(4, java.sql.Date.valueOf(estimatedDate));
+
+            pstmt3.executeUpdate();
+
+            ResultSet keys = pstmt3.getGeneratedKeys();
+            if (keys.next()) {
+                int reservationId = keys.getInt(1);
+                System.out.println("Book ID " + bookId + " reservation confirmed for Patron ID " + patronId + ".");
+                System.out.println("Reservation ID: " + reservationId);
+            }
+
+        } catch (Exception e) {
+            System.out.println("ERROR: " + e.getMessage());
+        }
+    }
+
+    public void cancelBookReservation(int reservationId) {
+
+        String checkReservation =
+                "SELECT r.status, p.status AS patronStatus " +
+                        "FROM reservations r " +
+                        "JOIN patrons p ON r.patronId = p.patronId " +
+                        "WHERE r.reservationId = ?";
+
+        String deleteReservation =
+                "DELETE FROM reservations WHERE reservationId = ?";
+
+        try (Connection conn = connect()) {
+
+            PreparedStatement pstmt1 = conn.prepareStatement(checkReservation);
+            pstmt1.setInt(1, reservationId);
+            ResultSet rs = pstmt1.executeQuery();
+
+            if (!rs.next()) {
+                System.out.println("Reservation not found.");
+                return;
+            }
+
+            String reservationStatus = rs.getString("status").trim();
+            String patronStatus = rs.getString("patronStatus").trim();
+
+            if (!patronStatus.equalsIgnoreCase("ACTIVE")) {
+                System.out.println("Cannot cancel reservation. The patron account is not active.");
+                return;
+            }
+
+            if (reservationStatus.equalsIgnoreCase("ON HOLD")) {
+                System.out.println("Cannot cancel as the book is already ready for pickup.");
+                return;
+            }
+
+            PreparedStatement pstmt2 = conn.prepareStatement(deleteReservation);
+            pstmt2.setInt(1, reservationId);
+            pstmt2.executeUpdate();
+
+            System.out.println("Reservation cancelled successfully.");
+
+        } catch (Exception e) {
+            System.out.println("ERROR: " + e.getMessage());
+        }
+    }
+
+    public void viewBookReservationStatus(int patronId) {
+
+        String checkPatron = "SELECT status FROM patrons WHERE patronId = ?";
+
+        String sql =
+                "SELECT r.reservationId, r.bookId, r.status, r.estimatedAvailableDate, " +
+                        "(SELECT COUNT(*) FROM reservations r2 " +
+                        " WHERE r2.bookId = r.bookId AND r2.reservationId <= r.reservationId) AS position " +
+                        "FROM reservations r " +
+                        "WHERE r.patronId = ? AND r.status IN ('IN QUEUE', 'ON HOLD') " +
+                        "ORDER BY r.reservationId";
+
+        try (Connection conn = connect()) {
+
+            PreparedStatement pstmt1 = conn.prepareStatement(checkPatron);
+            pstmt1.setInt(1, patronId);
+            ResultSet rs1 = pstmt1.executeQuery();
+
+            if (!rs1.next() || !rs1.getString("status").equalsIgnoreCase("ACTIVE")) {
+                System.out.println("Cannot view reservations. The patron is not active.");
+                return;
+            }
+
+            PreparedStatement pstmt2 = conn.prepareStatement(sql);
+            pstmt2.setInt(1, patronId);
+            ResultSet rs = pstmt2.executeQuery();
+
+            boolean found = false;
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMMM d, yyyy");
+
+            while (rs.next()) {
+                found = true;
+
+                int reservationId = rs.getInt("reservationId");
+                int bookId = rs.getInt("bookId");
+                String status = rs.getString("status");
+                int position = rs.getInt("position");
+
+                String formattedId = String.format("%04d", reservationId);
+
+                LocalDate estimatedDate = null;
+
+                try {
+                    java.sql.Date sqlDate = rs.getDate("estimatedAvailableDate");
+                    if (sqlDate != null) {
+                        estimatedDate = sqlDate.toLocalDate();
+                    } else {
+                        estimatedDate = LocalDate.now().plusDays(7L * position);
+                    }
+                } catch (Exception e) {
+                    try {
+                        Timestamp ts = rs.getTimestamp("estimatedAvailableDate");
+                        if (ts != null) {
+                            estimatedDate = ts.toLocalDateTime().toLocalDate();
+                        } else {
+                            estimatedDate = LocalDate.now().plusDays(7L * position);
+                        }
+                    } catch (Exception ex) {
+                        estimatedDate = LocalDate.now().plusDays(7L * position);
+                    }
+                }
+
+                String formattedDate = estimatedDate.format(formatter);
+
+                System.out.println(
+                        "Reservation #" + formattedId +
+                                " is currently " + status +
+                                " (Position " + position + "), Estimated Available of book is on " +
+                                formattedDate + "."
+                );
+            }
+
+            if (!found) {
+                System.out.println("No active reservations found for this account.");
+            }
+
+        } catch (Exception e) {
+            System.out.println("ERROR: " + e.getMessage());
+        }
+    }
+
 
     public void viewReferenceMaterials() {
 
