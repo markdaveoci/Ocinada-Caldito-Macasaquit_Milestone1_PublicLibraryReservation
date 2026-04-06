@@ -172,6 +172,155 @@ public class Repository {
         }
     }
 
+    public void reserveReferenceMaterial(int patronId, int materialId) {
+
+        String checkSql = "SELECT status FROM reference_materials WHERE materialId=?";
+        String reserveSql = "INSERT INTO reference_reservations(patronId, materialId, status) VALUES (?, ?, ?)";
+        String updateSql = "UPDATE reference_materials SET status='RESERVED' WHERE materialId=?";
+
+        try (Connection conn = connect()) {
+
+            conn.setAutoCommit(false);
+
+            try (PreparedStatement check = conn.prepareStatement(checkSql)) {
+
+                check.setInt(1, materialId);
+                ResultSet rs = check.executeQuery();
+
+                if (rs.next()) {
+
+                    String status = rs.getString("status");
+
+                    if (status.equalsIgnoreCase("AVAILABLE")) {
+
+                        try (PreparedStatement reserve = conn.prepareStatement(reserveSql, Statement.RETURN_GENERATED_KEYS);
+                             PreparedStatement update = conn.prepareStatement(updateSql)) {
+
+                            reserve.setInt(1, patronId);
+                            reserve.setInt(2, materialId);
+                            reserve.setString(3, "RESERVED");
+
+                            int rows = reserve.executeUpdate();
+
+                            if (rows > 0) {
+
+                                ResultSet generatedKeys = reserve.getGeneratedKeys();
+                                if (generatedKeys.next()) {
+                                    int reservationId = generatedKeys.getInt(1);
+
+                                    update.setInt(1, materialId);
+                                    update.executeUpdate();
+
+                                    conn.commit();
+
+                                    System.out.println("Reference material successfully reserved.");
+                                    System.out.println("Reservation ID: " + reservationId);
+                                } else {
+                                    conn.rollback();
+                                    System.out.println("Failed to retrieve reservation ID.");
+                                }
+
+                            }
+
+                        }
+
+                    } else {
+                        System.out.println("Cannot reserve. Current status: " + status);
+                        conn.rollback();
+                    }
+
+                } else {
+                    System.out.println("Reference material not found.");
+                    conn.rollback();
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("Error occurred during reservation.");
+        }
+    }
+
+    public void cancelReservedReferenceMaterial(int reservationId) {
+
+        String checkSql = "SELECT materialId FROM reference_reservations WHERE reservationId=?";
+        String deleteSql = "DELETE FROM reference_reservations WHERE reservationId=?";
+        String updateSql = "UPDATE reference_materials SET status='AVAILABLE' WHERE materialId=?";
+
+        try (Connection conn = connect()) {
+
+            conn.setAutoCommit(false);
+
+            try (PreparedStatement check = conn.prepareStatement(checkSql)) {
+
+                check.setInt(1, reservationId);
+                ResultSet rs = check.executeQuery();
+
+                if (rs.next()) {
+
+                    int materialId = rs.getInt("materialId");
+
+                    try (PreparedStatement delete = conn.prepareStatement(deleteSql);
+                         PreparedStatement update = conn.prepareStatement(updateSql)) {
+
+                        delete.setInt(1, reservationId);
+                        delete.executeUpdate();
+
+                        update.setInt(1, materialId);
+                        update.executeUpdate();
+
+                        conn.commit();
+                        System.out.println("Reservation cancelled successfully.");
+                    }
+
+                } else {
+                    System.out.println("Reservation record not found.");
+                    conn.rollback();
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("Error occurred while cancelling reservation.");
+        }
+    }
+
+    public void viewReservedReferenceMaterialStatus(int patronId) {
+
+        String sql = "SELECT reservationId, materialId, status FROM reference_reservations WHERE patronId=?";
+
+        try (Connection conn = connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setInt(1, patronId);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+
+                boolean found = false;
+
+                while (rs.next()) {
+                    found = true;
+
+                    System.out.println(
+                            "Reservation ID: " + rs.getInt("reservationId") +
+                                    " | Material ID: " + rs.getInt("materialId") +
+                                    " | Status: " + rs.getString("status")
+                    );
+                }
+
+                if (!found) {
+                    System.out.println("No reference material found with the provided information.");
+                } else {
+                    System.out.println("Reference material status displayed successfully.");
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("Error retrieving reference material status.");
+        }
+    }
+
     public void checkOutVisitor(int visitorId) {
         String checkSql = "SELECT * FROM visitors WHERE visitorId=?";
         String updateSql = "UPDATE visitors SET checkout_time = ?, status='OUT' WHERE visitorId=?";
