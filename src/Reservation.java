@@ -1,4 +1,4 @@
-public class Reservation {
+
     public class Reservation {
 
         private final int reservationId;
