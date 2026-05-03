@@ -148,6 +148,27 @@ public class Repository {
             System.out.println(e.getMessage());
         }
     }
+
+    public double getBookPrice(int bookId) {
+        String sql = "SELECT price FROM books WHERE bookId = ?";
+
+        try (Connection conn = connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setInt(1, bookId);
+            ResultSet rs = pstmt.executeQuery();
+
+            if (rs.next()) {
+                return rs.getDouble("price");
+            }
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+
+        return 0;
+    }
+
     public void reserveBook(int patronId, int bookId) {
 
         String checkPatron = "SELECT status FROM patrons WHERE patronId = ?";
@@ -196,6 +217,55 @@ public class Repository {
 
         } catch (Exception e) {
             System.out.println("ERROR: " + e.getMessage());
+        }
+    }
+
+    public boolean isBookAvailable(int bookId) {
+
+        String sql = "SELECT * FROM reservations WHERE bookId = ? AND status IN ('ON HOLD','IN QUEUE')";
+
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setInt(1, bookId);
+            ResultSet rs = ps.executeQuery();
+
+            return !rs.next(); // true = available, false = reserved
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+
+        return false;
+    }
+
+    public String maskAccount(String number) {
+        if (number.length() <= 4) return number;
+
+        int visible = 3;
+
+        return number.substring(0, visible)
+                + "*".repeat(number.length() - 6)
+                + number.substring(number.length() - visible);
+    }
+
+    public void savePayment(int patronId, double amount, String method, String accountNumber) {
+
+        String sql = "INSERT INTO payments(patronId, amount, method, paymentDate, accountNumber) VALUES (?, ?, ?, ?, ?)";
+
+        try (Connection conn = connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setInt(1, patronId);
+            pstmt.setDouble(2, amount);
+            pstmt.setString(3, method);
+            pstmt.setDate(4, java.sql.Date.valueOf(LocalDate.now()));
+            pstmt.setString(5, maskAccount(accountNumber));
+
+            pstmt.executeUpdate();
+
+        } catch (Exception e) {
+            System.out.println("Payment error: " + e.getMessage());
         }
     }
 
@@ -416,6 +486,47 @@ public class Repository {
         } catch (Exception e) {
             e.printStackTrace();
             System.out.println("Error occurred during reservation.");
+        }
+    }
+
+    public boolean isMaterialAvailable(int materialId) {
+
+        String sql = "SELECT status FROM reference_materials WHERE materialId=?";
+
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setInt(1, materialId);
+            ResultSet rs = ps.executeQuery();
+
+            if (rs.next()) {
+                return rs.getString("status").equalsIgnoreCase("AVAILABLE");
+            }
+
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    public void savePayment2(int rpatronId, double amount2, String method2, String accountNumber2) {
+
+        String sql = "INSERT INTO referencematerial_payments(patronId, amount, method, paymentDate, accountNumber) VALUES (?, ?, ?, ?, ?)";
+
+        try (Connection conn = connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setInt(1, rpatronId);
+            pstmt.setDouble(2, amount2);
+            pstmt.setString(3, method2);
+            pstmt.setDate(4, java.sql.Date.valueOf(LocalDate.now()));
+            pstmt.setString(5, maskAccount(accountNumber2));
+
+            pstmt.executeUpdate();
+
+        } catch (Exception e) {
+            System.out.println("Payment error: " + e.getMessage());
         }
     }
 
