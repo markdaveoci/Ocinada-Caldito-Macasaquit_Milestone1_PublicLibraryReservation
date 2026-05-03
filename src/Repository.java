@@ -212,7 +212,6 @@ public class Repository {
             return -1;
         }
     }
-
     public void cancelBookReservation(int reservationId, String refundAccount) {
 
         String checkReservation =
@@ -291,6 +290,7 @@ public class Repository {
             System.out.println("ERROR: " + e.getMessage());
         }
     }
+
     public void viewBookReservationStatus(int patronId) {
 
         String checkPatron = "SELECT status FROM patrons WHERE patronId = ?";
