@@ -213,54 +213,6 @@ public class Repository {
         }
     }
 
-    public boolean isBookAvailable(int bookId) {
-
-        String sql = "SELECT * FROM reservations WHERE bookId = ? AND status IN ('ON HOLD','IN QUEUE')";
-
-        try (Connection conn = connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setInt(1, bookId);
-            ResultSet rs = ps.executeQuery();
-
-            return !rs.next(); // true = available, false = reserved
-
-        } catch (Exception e) {
-            System.out.println(e.getMessage());
-        }
-
-        return false;
-    }
-
-    public String maskAccount(String number) {
-        if (number.length() <= 4) return number;
-
-        int visible = 3;
-
-        return number.substring(0, visible)
-                + "*".repeat(number.length() - 6)
-                + number.substring(number.length() - visible);
-    }
-
-    public void savePayment(int patronId, double amount, String method, String accountNumber) {
-
-        String sql = "INSERT INTO payments(patronId, amount, method, paymentDate, accountNumber) VALUES (?, ?, ?, ?, ?)";
-
-        try (Connection conn = connect();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-
-            pstmt.setInt(1, patronId);
-            pstmt.setDouble(2, amount);
-            pstmt.setString(3, method);
-            pstmt.setDate(4, java.sql.Date.valueOf(LocalDate.now()));
-            pstmt.setString(5, maskAccount(accountNumber));
-
-            pstmt.executeUpdate();
-
-        } catch (Exception e) {
-            System.out.println("Payment error: " + e.getMessage());
-        }
-    }
     public void cancelBookReservation(int reservationId, String refundAccount) {
 
         String checkReservation =
