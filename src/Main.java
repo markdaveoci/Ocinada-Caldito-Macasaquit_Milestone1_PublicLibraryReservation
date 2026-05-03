@@ -164,26 +164,124 @@ public class Main {
             switch (choice3) {
 
                 case 1:
+
                     repo.viewBooks();
 
                     System.out.println("\nRESERVE BOOK");
+
                     System.out.print("Enter Patron ID: ");
                     int patronId = scanner.nextInt();
+
                     System.out.print("Enter Book ID: ");
                     int bookId = scanner.nextInt();
-                    System.out.print("\n");
 
-                    repo.reserveBook(patronId, bookId);
+                    if (!repo.isBookAvailable(bookId)) {
+                        System.out.println("Book already reserved.");
+                        break;
+                    }
+
+                    double price = repo.getBookPrice(bookId);
+
+                    double finalAmount = (price + (price * 0.12)) - 10;
+
+                    System.out.println("\n===== INVOICE PREVIEW =====");
+                    System.out.println("Base Price: ₱" + price);
+                    System.out.println("VAT (12%): Applied");
+                    System.out.println("Discount: ₱10");
+                    System.out.println("FINAL AMOUNT: ₱" + finalAmount);
+                    System.out.println("===========================");
+
+                    System.out.println("\nMODE OF PAYMENT");
+                    System.out.println("1. GCash");
+                    System.out.println("2. Card");
+                    System.out.print("Choice: ");
+                    int choice = scanner.nextInt();
+
+                    String method;
+                    String accountNumber;
+                    double balance;
+                    PaymentFramework payment;
+
+                    if (choice == 1) {
+                        System.out.print("\nGCash Number: ");
+                        accountNumber = scanner.next();
+
+                        System.out.print("Balance: ");
+                        balance = scanner.nextDouble();
+
+                        payment = new GCashPayment(price, 10, balance, accountNumber);
+                        method = "GCash";
+
+                    } else if (choice == 2) {
+                        System.out.print("\nCard Number: ");
+                        accountNumber = scanner.next();
+
+                        System.out.print("Balance: ");
+                        balance = scanner.nextDouble();
+
+                        payment = new CardPayment(price, 10, balance, accountNumber);
+                        method = "Card";
+
+                    } else {
+                        System.out.println("Invalid choice.");
+                        break;
+                    }
+
+                    System.out.println();
+
+                    payment.processInvoice();
+
+                    System.out.println();
+
+                    if (!payment.validatePayment()) {
+                        System.out.println("Payment failed.");
+                        break;
+                    }
+
+                    int reservationId = repo.reserveBook(patronId, bookId);
+
+                    if (reservationId == -1) {
+                        System.out.println("Reservation failed.");
+                        break;
+                    }
+
+                    repo.savePayment(patronId, finalAmount, method, accountNumber);
+
+                    double remainingBalance = balance - finalAmount;
+
+                    String masked;
+                    if (payment instanceof GCashPayment) {
+                        masked = ((GCashPayment) payment).maskNumber();
+                    } else {
+                        masked = ((CardPayment) payment).maskNumber();
+                    }
+
+                    System.out.println("\n===== RECEIPT =====");
+                    System.out.println("Patron ID: " + patronId);
+                    System.out.println("Book ID: " + bookId);
+                    System.out.println("Account: " + masked);
+                    System.out.println("Amount Paid: ₱" + finalAmount);
+                    System.out.println("Method: " + method);
+                    System.out.println("Entered Balance: ₱" + balance);
+                    System.out.println("Deducted Amount: ₱" + finalAmount);
+                    System.out.println("Remaining Balance: ₱" + remainingBalance);
+                    System.out.println("===================");
+
                     break;
 
                 case 2:
-                    System.out.println("\nCANCEL BOOK RESERVATION");
-                    System.out.print("Reservation ID: ");
-                    int reservationId = scanner.nextInt();
-                    System.out.print("\n");
 
-                    repo.cancelBookReservation(reservationId);
+                    System.out.println("\nCANCEL BOOK RESERVATION");
+
+                    System.out.print("Reservation ID: ");
+                    int rId = scanner.nextInt();
+
+                    System.out.print("Enter GCash/Card Number for refund: ");
+                    String refundAccount = scanner.next();
+
+                    repo.cancelBookReservation(rId, refundAccount);
                     break;
+
 
                 case 3:
                     System.out.println("\nVIEW BOOK RESERVATION STATUS");
