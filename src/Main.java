@@ -1,6 +1,47 @@
 import java.util.Scanner;
 
 public class Main {
+
+    public static class PaymentResult {
+        double finalAmount;
+        String method;
+        String masked;
+        double remainingBalance;
+    }
+
+    public static PaymentResult processPayment(
+            Scanner scanner,
+            PaymentFramework payment,
+            String method,
+            double price,
+            double balance
+    ) {
+
+        PaymentResult result = new PaymentResult();
+
+        payment.processInvoice();
+
+        if (!payment.validatePayment()) {
+            System.out.println("Insufficient balance. Transaction cancelled.");
+            return null;
+        }
+
+        result.finalAmount = payment.applyDiscountRate(
+                payment.applyVATRate(price)
+        );
+
+        result.remainingBalance = balance - result.finalAmount;
+        result.method = method;
+
+        if (payment instanceof GCashPayment) {
+            result.masked = ((GCashPayment) payment).maskNumber();
+        } else {
+            result.masked = ((CardPayment) payment).maskNumber();
+        }
+
+        return result;
+    }
+
     public static void main(String[] args) {
 
         Scanner scanner = new Scanner(System.in);
@@ -252,25 +293,120 @@ public class Main {
                     break;
 
                 case 4:
+
                     repo.viewReferenceMaterials();
 
                     System.out.println("\nRESERVE REFERENCE MATERIAL");
+
                     System.out.print("Enter Patron ID: ");
                     int rpatronId = scanner.nextInt();
-                    System.out.print("Enter Reference Material ID: ");
+
+                    System.out.print("Enter Material ID: ");
                     int materialId = scanner.nextInt();
-                    System.out.print("\n");
 
-                    repo.reserveReferenceMaterial(rpatronId, materialId);
+                    if (!repo.isMaterialAvailable(materialId)) {
+                        System.out.println("Already reserved.");
+                        break;
+                    }
+
+                    double price2 = 100;
+
+                    double finalAmount2 = (price2 + (price2 * 0.12)) - 10;
+
+                    System.out.println("\n===== INVOICE PREVIEW =====");
+                    System.out.println("Base Price: ₱" + price2);
+                    System.out.println("VAT (12%): Applied");
+                    System.out.println("Discount: ₱10");
+                    System.out.println("FINAL AMOUNT: ₱" + finalAmount2);
+                    System.out.println("===========================");
+
+                    System.out.println("\nMODE OF PAYMENT");
+                    System.out.println("1. GCash");
+                    System.out.println("2. Card");
+                    System.out.print("Choice: ");
+                    int choice5 = scanner.nextInt();
+
+                    String method2;
+                    String accountNumber2;
+                    double balance2;
+                    PaymentFramework payment2;
+
+                    if (choice5 == 1) {
+                        System.out.print("\nGCash Number: ");
+                        accountNumber2 = scanner.next();
+
+                        System.out.print("Balance: ");
+                        balance2 = scanner.nextDouble();
+
+                        payment2 = new GCashPayment(price2, 10, balance2, accountNumber2);
+                        method2 = "GCash";
+
+                    } else if (choice5 == 2) {
+                        System.out.print("\nCard Number: ");
+                        accountNumber2 = scanner.next();
+
+                        System.out.print("Balance: ");
+                        balance2 = scanner.nextDouble();
+
+                        payment2 = new CardPayment(price2, 10, balance2, accountNumber2);
+                        method2 = "Card";
+
+                    } else {
+                        System.out.println("Invalid choice.");
+                        break;
+                    }
+
+                    System.out.println();
+
+                    payment2.processInvoice();
+
+                    System.out.println();
+
+                    if (!payment2.validatePayment()) {
+                        System.out.println("Payment failed.");
+                        break;
+                    }
+
+                    int reservationId2 = repo.reserveReferenceMaterial(rpatronId, materialId);
+
+                    if (reservationId2 == -1) {
+                        System.out.println("Reservation failed.");
+                        break;
+                    }
+
+                    repo.savePayment2(rpatronId, finalAmount2, method2, accountNumber2);
+
+                    String masked2;
+                    if (payment2 instanceof GCashPayment) {
+                        masked2 = ((GCashPayment) payment2).maskNumber();
+                    } else {
+                        masked2 = ((CardPayment) payment2).maskNumber();
+                    }
+
+                    System.out.println("\n===== RECEIPT =====");
+                    System.out.println("Patron ID: " + rpatronId);
+                    System.out.println("Reservation ID: " + reservationId2);
+                    System.out.println("Reference Material ID: " + materialId);
+                    System.out.println("Account: " + masked2);
+                    System.out.println("Amount Paid: ₱" + finalAmount2);
+                    System.out.println("Method: " + method2);
+                    System.out.println("Remaining Balance: ₱" + (balance2 - finalAmount2));
+                    System.out.println("===================");
+
                     break;
-
+                    
                 case 5:
+
                     System.out.println("\nCANCEL RESERVED REFERENCE MATERIAL");
+
                     System.out.print("Enter Reservation ID: ");
                     int refReservationId = scanner.nextInt();
-                    System.out.print("\n");
 
-                    repo.cancelReservedReferenceMaterial(refReservationId);
+                    System.out.print("Enter GCash/Card Number for refund: ");
+                    String refundAccount2 = scanner.next();
+
+                    repo.cancelReservedReferenceMaterial(refReservationId, refundAccount2);
+
                     break;
 
                 case 6:
