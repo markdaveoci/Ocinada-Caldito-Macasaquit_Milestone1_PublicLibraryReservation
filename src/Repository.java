@@ -148,13 +148,13 @@ public class Repository {
             System.out.println(e.getMessage());
         }
     }
-    public void reserveBook(int patronId, int bookId) {
+    public int reserveBook(int patronId, int bookId) {
 
         String checkPatron = "SELECT status FROM patrons WHERE patronId = ?";
-        String checkReservation =
-                "SELECT * FROM reservations WHERE bookId = ? AND status IN ('IN QUEUE', 'ON HOLD')";
-        String insertReservation =
-                "INSERT INTO reservations(patronId, bookId, status, estimatedAvailableDate) VALUES (?, ?, ?, ?)";
+        String checkReservation = "SELECT * FROM reservations WHERE bookId = ? AND status IN ('IN QUEUE', 'ON HOLD')";
+        String insertReservation = "INSERT INTO reservations(patronId, bookId, status, estimatedAvailableDate) VALUES (?, ?, ?, ?)";
+        String updateBookStatus = "UPDATE books SET available = ?, status = ? WHERE bookId = ?";
+        String getBook = "SELECT price FROM books WHERE bookId = ?";
 
         try (Connection conn = connect()) {
 
@@ -162,9 +162,9 @@ public class Repository {
             pstmt1.setInt(1, patronId);
             ResultSet rs1 = pstmt1.executeQuery();
 
-            if (!rs1.next() || !rs1.getString("status").trim().equalsIgnoreCase("ACTIVE")) {
-                System.out.println("Cannot reserve a book. The Patron account is not active.");
-                return;
+            if (!rs1.next() || !rs1.getString("status").equalsIgnoreCase("ACTIVE")) {
+                System.out.println("Patron not active.");
+                return -1;
             }
 
             PreparedStatement pstmt2 = conn.prepareStatement(checkReservation);
@@ -172,40 +172,106 @@ public class Repository {
             ResultSet rs2 = pstmt2.executeQuery();
 
             if (rs2.next()) {
-                System.out.println("Cannot reserve items as it is already on hold by another patron.");
-                return;
+                System.out.println("Book already reserved.");
+                return -1;
             }
 
-            LocalDate today = LocalDate.now();
-            LocalDate estimatedDate = today.plusDays(7);
+            PreparedStatement pstmtBook = conn.prepareStatement(getBook);
+            pstmtBook.setInt(1, bookId);
+            ResultSet rsBook = pstmtBook.executeQuery();
+
+            if (!rsBook.next()) {
+                System.out.println("Book not found.");
+                return -1;
+            }
+
+            double price = rsBook.getDouble("price");
+
+            LocalDate estimatedDate = LocalDate.now().plusDays(7);
 
             PreparedStatement pstmt3 = conn.prepareStatement(insertReservation, Statement.RETURN_GENERATED_KEYS);
             pstmt3.setInt(1, patronId);
             pstmt3.setInt(2, bookId);
-            pstmt3.setString(3, "IN QUEUE");
+            pstmt3.setString(3, "ON HOLD");
             pstmt3.setDate(4, java.sql.Date.valueOf(estimatedDate));
 
             pstmt3.executeUpdate();
 
-            ResultSet keys = pstmt3.getGeneratedKeys();
-            if (keys.next()) {
-                int reservationId = keys.getInt(1);
-                System.out.println("Book ID " + bookId + " reservation confirmed for Patron ID " + patronId + ".");
-                System.out.println("Reservation ID: " + reservationId);
-            }
+            PreparedStatement pstmt4 = conn.prepareStatement(updateBookStatus);
+            pstmt4.setInt(1, 0);
+            pstmt4.setString(2, "ON HOLD");
+            pstmt4.setInt(3, bookId);
+            pstmt4.executeUpdate();
+
+            System.out.println("Reservation successful!");
+
+            return 0;
 
         } catch (Exception e) {
             System.out.println("ERROR: " + e.getMessage());
+            return -1;
         }
     }
 
-    public void cancelBookReservation(int reservationId) {
+    public boolean isBookAvailable(int bookId) {
+
+        String sql = "SELECT * FROM reservations WHERE bookId = ? AND status IN ('ON HOLD','IN QUEUE')";
+
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setInt(1, bookId);
+            ResultSet rs = ps.executeQuery();
+
+            return !rs.next(); // true = available, false = reserved
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+
+        return false;
+    }
+
+    public String maskAccount(String number) {
+        if (number.length() <= 4) return number;
+
+        int visible = 3;
+
+        return number.substring(0, visible)
+                + "*".repeat(number.length() - 6)
+                + number.substring(number.length() - visible);
+    }
+
+    public void savePayment(int patronId, double amount, String method, String accountNumber) {
+
+        String sql = "INSERT INTO payments(patronId, amount, method, paymentDate, accountNumber) VALUES (?, ?, ?, ?, ?)";
+
+        try (Connection conn = connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setInt(1, patronId);
+            pstmt.setDouble(2, amount);
+            pstmt.setString(3, method);
+            pstmt.setDate(4, java.sql.Date.valueOf(LocalDate.now()));
+            pstmt.setString(5, maskAccount(accountNumber));
+
+            pstmt.executeUpdate();
+
+        } catch (Exception e) {
+            System.out.println("Payment error: " + e.getMessage());
+        }
+    }
+    public void cancelBookReservation(int reservationId, String refundAccount) {
 
         String checkReservation =
-                "SELECT r.status, p.status AS patronStatus " +
+                "SELECT r.status, r.patronId, p.status AS patronStatus " +
                         "FROM reservations r " +
                         "JOIN patrons p ON r.patronId = p.patronId " +
                         "WHERE r.reservationId = ?";
+
+        String getPayment =
+                "SELECT amount, method, accountNumber FROM payments " +
+                        "WHERE patronId = (SELECT patronId FROM reservations WHERE reservationId = ?)";
 
         String deleteReservation =
                 "DELETE FROM reservations WHERE reservationId = ?";
@@ -225,18 +291,47 @@ public class Repository {
             String patronStatus = rs.getString("patronStatus").trim();
 
             if (!patronStatus.equalsIgnoreCase("ACTIVE")) {
-                System.out.println("Cannot cancel reservation. The patron account is not active.");
+                System.out.println("Cannot cancel reservation. Patron is not active.");
                 return;
             }
 
-            if (reservationStatus.equalsIgnoreCase("ON HOLD")) {
-                System.out.println("Cannot cancel as the book is already ready for pickup.");
+            if (reservationStatus.equalsIgnoreCase("READY FOR PICKUP")) {
+                System.out.println("Cannot cancel. Book is already ready for pickup.");
                 return;
             }
 
-            PreparedStatement pstmt2 = conn.prepareStatement(deleteReservation);
+            PreparedStatement pstmt2 = conn.prepareStatement(getPayment);
             pstmt2.setInt(1, reservationId);
-            pstmt2.executeUpdate();
+            ResultSet payRs = pstmt2.executeQuery();
+
+            double amount = 0;
+            String method = "";
+            String originalAccount = "";
+
+            if (payRs.next()) {
+                amount = payRs.getDouble("amount");
+                method = payRs.getString("method");
+                originalAccount = payRs.getString("accountNumber");
+            }
+
+            String originalSuffix = originalAccount.length() >= 3
+                    ? originalAccount.substring(originalAccount.length() - 3)
+                    : originalAccount;
+
+            if (!refundAccount.endsWith(originalSuffix)) {
+                System.out.println("Refund failed: account does not match original payment method.");
+                return;
+            }
+
+            PreparedStatement pstmt3 = conn.prepareStatement(deleteReservation);
+            pstmt3.setInt(1, reservationId);
+            pstmt3.executeUpdate();
+
+            System.out.println("\n===== REFUND SUCCESS =====");
+            System.out.println("Amount Refunded: ₱" + amount);
+            System.out.println("Method: " + method);
+            System.out.println("Refunded To: " + maskAccount(refundAccount));
+            System.out.println("==========================");
 
             System.out.println("Reservation cancelled successfully.");
 
@@ -244,7 +339,6 @@ public class Repository {
             System.out.println("ERROR: " + e.getMessage());
         }
     }
-
     public void viewBookReservationStatus(int patronId) {
 
         String checkPatron = "SELECT status FROM patrons WHERE patronId = ?";
