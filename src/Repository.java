@@ -420,7 +420,7 @@ public class Repository {
         }
     }
 
-    public void reserveReferenceMaterial(int patronId, int materialId) {
+    public int reserveReferenceMaterial(int patronId, int materialId) {
 
         String checkSql = "SELECT status FROM reference_materials WHERE materialId=?";
         String reserveSql = "INSERT INTO reference_reservations(patronId, materialId, status) VALUES (?, ?, ?)";
@@ -435,57 +435,53 @@ public class Repository {
                 check.setInt(1, materialId);
                 ResultSet rs = check.executeQuery();
 
-                if (rs.next()) {
+                if (!rs.next()) {
+                    conn.rollback();
+                    return -1;
+                }
 
-                    String status = rs.getString("status");
+                String status = rs.getString("status");
 
-                    if (status.equalsIgnoreCase("AVAILABLE")) {
+                if (!status.equalsIgnoreCase("AVAILABLE")) {
+                    conn.rollback();
+                    return -1;
+                }
 
-                        try (PreparedStatement reserve = conn.prepareStatement(reserveSql, Statement.RETURN_GENERATED_KEYS);
-                             PreparedStatement update = conn.prepareStatement(updateSql)) {
+                try (PreparedStatement reserve = conn.prepareStatement(reserveSql, Statement.RETURN_GENERATED_KEYS);
+                     PreparedStatement update = conn.prepareStatement(updateSql)) {
 
-                            reserve.setInt(1, patronId);
-                            reserve.setInt(2, materialId);
-                            reserve.setString(3, "RESERVED");
+                    reserve.setInt(1, patronId);
+                    reserve.setInt(2, materialId);
+                    reserve.setString(3, "RESERVED");
 
-                            int rows = reserve.executeUpdate();
+                    int rows = reserve.executeUpdate();
 
-                            if (rows > 0) {
-
-                                ResultSet generatedKeys = reserve.getGeneratedKeys();
-                                if (generatedKeys.next()) {
-                                    int reservationId = generatedKeys.getInt(1);
-
-                                    update.setInt(1, materialId);
-                                    update.executeUpdate();
-
-                                    conn.commit();
-
-                                    System.out.println("Reference material successfully reserved.");
-                                    System.out.println("Reservation ID: " + reservationId);
-                                } else {
-                                    conn.rollback();
-                                    System.out.println("Failed to retrieve reservation ID.");
-                                }
-
-                            }
-
-                        }
-
-                    } else {
-                        System.out.println("Cannot reserve. Current status: " + status);
+                    if (rows == 0) {
                         conn.rollback();
+                        return -1;
                     }
 
-                } else {
-                    System.out.println("Reference material not found.");
-                    conn.rollback();
+                    ResultSet generatedKeys = reserve.getGeneratedKeys();
+
+                    if (!generatedKeys.next()) {
+                        conn.rollback();
+                        return -1;
+                    }
+
+                    int reservationId = generatedKeys.getInt(1);
+
+                    update.setInt(1, materialId);
+                    update.executeUpdate();
+
+                    conn.commit();
+                    return reservationId;
                 }
+
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
             System.out.println("Error occurred during reservation.");
+            return -1;
         }
     }
 
@@ -530,47 +526,124 @@ public class Repository {
         }
     }
 
-    public void cancelReservedReferenceMaterial(int reservationId) {
+    public void cancelReservedReferenceMaterial(int reservationId, String refundAccount) {
 
-        String checkSql = "SELECT materialId FROM reference_reservations WHERE reservationId=?";
-        String deleteSql = "DELETE FROM reference_reservations WHERE reservationId=?";
-        String updateSql = "UPDATE reference_materials SET status='AVAILABLE' WHERE materialId=?";
+        String checkSql =
+                "SELECT rr.materialId, rr.patronId, p.status AS patronStatus " +
+                        "FROM reference_reservations rr " +
+                        "JOIN patrons p ON rr.patronId = p.patronId " +
+                        "WHERE rr.reservationId = ?";
+
+        String getPayment =
+                "SELECT amount, method, accountNumber FROM referencematerial_payments " +
+                        "WHERE patronId = (SELECT patronId FROM reference_reservations WHERE reservationId = ?)";
+
+        String deleteSql =
+                "DELETE FROM reference_reservations WHERE reservationId = ?";
+
+        String updateSql =
+                "UPDATE reference_materials SET status='AVAILABLE' WHERE materialId=?";
 
         try (Connection conn = connect()) {
 
             conn.setAutoCommit(false);
 
-            try (PreparedStatement check = conn.prepareStatement(checkSql)) {
+            // 1. CHECK RESERVATION
+            try (PreparedStatement pstmt1 = conn.prepareStatement(checkSql)) {
 
-                check.setInt(1, reservationId);
-                ResultSet rs = check.executeQuery();
+                pstmt1.setInt(1, reservationId);
+                ResultSet rs = pstmt1.executeQuery();
 
-                if (rs.next()) {
-
-                    int materialId = rs.getInt("materialId");
-
-                    try (PreparedStatement delete = conn.prepareStatement(deleteSql);
-                         PreparedStatement update = conn.prepareStatement(updateSql)) {
-
-                        delete.setInt(1, reservationId);
-                        delete.executeUpdate();
-
-                        update.setInt(1, materialId);
-                        update.executeUpdate();
-
-                        conn.commit();
-                        System.out.println("Reservation cancelled successfully.");
-                    }
-
-                } else {
-                    System.out.println("Reservation record not found.");
+                if (!rs.next()) {
+                    System.out.println("Reservation not found.");
                     conn.rollback();
+                    return;
+                }
+
+                String patronStatus = rs.getString("patronStatus");
+
+                if (!"ACTIVE".equalsIgnoreCase(patronStatus)) {
+                    System.out.println("Cannot cancel reservation. Patron is not active.");
+                    conn.rollback();
+                    return;
                 }
             }
 
+            // 2. GET PAYMENT INFO
+            double amount = 0;
+            String method = "";
+            String originalAccount = "";
+            int materialId = 0;
+
+            try (PreparedStatement pstmt2 = conn.prepareStatement(getPayment)) {
+
+                pstmt2.setInt(1, reservationId);
+                ResultSet payRs = pstmt2.executeQuery();
+
+                if (!payRs.next()) {
+                    System.out.println("Payment record not found.");
+                    conn.rollback();
+                    return;
+                }
+
+                amount = payRs.getDouble("amount");
+                method = payRs.getString("method");
+                originalAccount = payRs.getString("accountNumber");
+            }
+
+            // 3. SAFE NULL CHECK
+            if (originalAccount == null || refundAccount == null) {
+                System.out.println("Refund failed: missing account information.");
+                conn.rollback();
+                return;
+            }
+
+            // 4. SAFE MATCH (suffix-based like your reference)
+            String originalSuffix = originalAccount.length() >= 3
+                    ? originalAccount.substring(originalAccount.length() - 3)
+                    : originalAccount;
+
+            if (!refundAccount.endsWith(originalSuffix)) {
+                System.out.println("Refund failed: account does not match original payment method.");
+                conn.rollback();
+                return;
+            }
+
+            // 5. GET MATERIAL ID (for update)
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "SELECT materialId FROM reference_reservations WHERE reservationId=?")) {
+
+                stmt.setInt(1, reservationId);
+                ResultSet rs2 = stmt.executeQuery();
+
+                if (rs2.next()) {
+                    materialId = rs2.getInt("materialId");
+                }
+            }
+
+            // 6. DELETE + UPDATE
+            try (PreparedStatement delete = conn.prepareStatement(deleteSql);
+                 PreparedStatement update = conn.prepareStatement(updateSql)) {
+
+                delete.setInt(1, reservationId);
+                delete.executeUpdate();
+
+                update.setInt(1, materialId);
+                update.executeUpdate();
+
+                conn.commit();
+
+                System.out.println("\n===== REFUND SUCCESS =====");
+                System.out.println("Amount Refunded: ₱" + amount);
+                System.out.println("Method: " + method);
+                System.out.println("Refunded To: " + maskAccount(refundAccount));
+                System.out.println("==========================");
+
+                System.out.println("Reservation cancelled successfully.");
+            }
+
         } catch (Exception e) {
-            e.printStackTrace();
-            System.out.println("Error occurred while cancelling reservation.");
+            System.out.println("ERROR: " + e.getMessage());
         }
     }
 
