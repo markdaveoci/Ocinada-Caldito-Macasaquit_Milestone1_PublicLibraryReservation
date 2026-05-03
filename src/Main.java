@@ -1,6 +1,47 @@
 import java.util.Scanner;
 
 public class Main {
+
+    public static class PaymentResult {
+        double finalAmount;
+        String method;
+        String masked;
+        double remainingBalance;
+    }
+
+    public static PaymentResult processPayment(
+            Scanner scanner,
+            PaymentFramework payment,
+            String method,
+            double price,
+            double balance
+    ) {
+
+        PaymentResult result = new PaymentResult();
+
+        payment.processInvoice();
+
+        if (!payment.validatePayment()) {
+            System.out.println("Insufficient balance. Transaction cancelled.");
+            return null;
+        }
+
+        result.finalAmount = payment.applyDiscountRate(
+                payment.applyVATRate(price)
+        );
+
+        result.remainingBalance = balance - result.finalAmount;
+        result.method = method;
+
+        if (payment instanceof GCashPayment) {
+            result.masked = ((GCashPayment) payment).maskNumber();
+        } else {
+            result.masked = ((CardPayment) payment).maskNumber();
+        }
+
+        return result;
+    }
+
     public static void main(String[] args) {
 
         Scanner scanner = new Scanner(System.in);
