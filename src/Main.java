@@ -71,7 +71,7 @@ public class Main {
                     String purpose = scanner.nextLine();
 
                     if (name.isEmpty() || address.isEmpty() || purpose.isEmpty()) {
-                        System.out.println("\nCheck-in failed. Please fill in all fields.");
+                        System.out.println("\nCheck-in failed. Please fill in all fields.\n");
                     } else {
                         Visitor visitor = new Visitor.VisitorBuilder()
                                 .setName(name)
@@ -282,7 +282,6 @@ public class Main {
                     repo.cancelBookReservation(rId, refundAccount);
                     break;
 
-
                 case 3:
                     System.out.println("\nVIEW BOOK RESERVATION STATUS");
                     System.out.print("Enter Patron ID: ");
@@ -394,7 +393,7 @@ public class Main {
                     System.out.println("===================");
 
                     break;
-                    
+
                 case 5:
 
                     System.out.println("\nCANCEL RESERVED REFERENCE MATERIAL");

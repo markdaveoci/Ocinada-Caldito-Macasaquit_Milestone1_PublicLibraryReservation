@@ -6,6 +6,7 @@ import java.time.ZoneId;
 import java.sql.Timestamp;
 
 public class Repository {
+
     private static final String DB_URL = "jdbc:sqlite:library.db";
 
     public Repository() {
@@ -125,7 +126,6 @@ public class Repository {
     }
 
     public void viewBooks() {
-
         String sql = "SELECT * FROM books";
 
         try (Connection conn = connect();
@@ -135,11 +135,11 @@ public class Repository {
             System.out.println("\nAvailable Books:");
 
             while (rs.next()) {
-
                 System.out.println(
                         "Book ID: " + rs.getInt("bookId") +
                                 " | Title: " + rs.getString("title") +
                                 " | Author: " + rs.getString("author") +
+                                " | Price: ₱" + rs.getDouble("price") +
                                 " | Available: " + rs.getInt("available")
                 );
             }
@@ -148,6 +148,27 @@ public class Repository {
             System.out.println(e.getMessage());
         }
     }
+
+    public double getBookPrice(int bookId) {
+        String sql = "SELECT price FROM books WHERE bookId = ?";
+
+        try (Connection conn = connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setInt(1, bookId);
+            ResultSet rs = pstmt.executeQuery();
+
+            if (rs.next()) {
+                return rs.getDouble("price");
+            }
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+
+        return 0;
+    }
+
     public int reserveBook(int patronId, int bookId) {
 
         String checkPatron = "SELECT status FROM patrons WHERE patronId = ?";
@@ -212,6 +233,56 @@ public class Repository {
             return -1;
         }
     }
+
+    public boolean isBookAvailable(int bookId) {
+
+        String sql = "SELECT * FROM reservations WHERE bookId = ? AND status IN ('ON HOLD','IN QUEUE')";
+
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setInt(1, bookId);
+            ResultSet rs = ps.executeQuery();
+
+            return !rs.next();
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+
+        return false;
+    }
+
+    public String maskAccount(String number) {
+        if (number.length() <= 4) return number;
+
+        int visible = 3;
+
+        return number.substring(0, visible)
+                + "*".repeat(number.length() - 6)
+                + number.substring(number.length() - visible);
+    }
+
+    public void savePayment(int patronId, double amount, String method, String accountNumber) {
+
+        String sql = "INSERT INTO payments(patronId, amount, method, paymentDate, accountNumber) VALUES (?, ?, ?, ?, ?)";
+
+        try (Connection conn = connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setInt(1, patronId);
+            pstmt.setDouble(2, amount);
+            pstmt.setString(3, method);
+            pstmt.setDate(4, java.sql.Date.valueOf(LocalDate.now()));
+            pstmt.setString(5, maskAccount(accountNumber));
+
+            pstmt.executeUpdate();
+
+        } catch (Exception e) {
+            System.out.println("Payment error: " + e.getMessage());
+        }
+    }
+
     public void cancelBookReservation(int reservationId, String refundAccount) {
 
         String checkReservation =
@@ -224,42 +295,62 @@ public class Repository {
                 "SELECT amount, method, accountNumber FROM payments " +
                         "WHERE patronId = (SELECT patronId FROM reservations WHERE reservationId = ?)";
 
+        String deletePayment =
+                "DELETE FROM payments " +
+                        "WHERE patronId = (SELECT patronId FROM reservations WHERE reservationId = ?)";
+
         String deleteReservation =
                 "DELETE FROM reservations WHERE reservationId = ?";
 
         try (Connection conn = connect()) {
 
-            PreparedStatement pstmt1 = conn.prepareStatement(checkReservation);
-            pstmt1.setInt(1, reservationId);
-            ResultSet rs = pstmt1.executeQuery();
+            conn.setAutoCommit(false);
 
-            if (!rs.next()) {
-                System.out.println("Reservation not found.");
-                return;
+            String reservationStatus;
+            String patronStatus;
+
+            try (PreparedStatement pstmt1 = conn.prepareStatement(checkReservation)) {
+
+                pstmt1.setInt(1, reservationId);
+                ResultSet rs = pstmt1.executeQuery();
+
+                if (!rs.next()) {
+                    System.out.println("Reservation not found.");
+                    conn.rollback();
+                    return;
+                }
+
+                reservationStatus = rs.getString("status").trim();
+                patronStatus = rs.getString("patronStatus").trim();
             }
-
-            String reservationStatus = rs.getString("status").trim();
-            String patronStatus = rs.getString("patronStatus").trim();
 
             if (!patronStatus.equalsIgnoreCase("ACTIVE")) {
                 System.out.println("Cannot cancel reservation. Patron is not active.");
+                conn.rollback();
                 return;
             }
 
             if (reservationStatus.equalsIgnoreCase("READY FOR PICKUP")) {
                 System.out.println("Cannot cancel. Book is already ready for pickup.");
+                conn.rollback();
                 return;
             }
-
-            PreparedStatement pstmt2 = conn.prepareStatement(getPayment);
-            pstmt2.setInt(1, reservationId);
-            ResultSet payRs = pstmt2.executeQuery();
 
             double amount = 0;
             String method = "";
             String originalAccount = "";
 
-            if (payRs.next()) {
+            try (PreparedStatement pstmt2 = conn.prepareStatement(getPayment)) {
+
+                pstmt2.setInt(1, reservationId);
+                ResultSet payRs = pstmt2.executeQuery();
+
+                if (!payRs.next()) {
+                    System.out.println("Payment record not found.");
+                    conn.rollback();
+                    return;
+                }
+
                 amount = payRs.getDouble("amount");
                 method = payRs.getString("method");
                 originalAccount = payRs.getString("accountNumber");
@@ -271,20 +362,29 @@ public class Repository {
 
             if (!refundAccount.endsWith(originalSuffix)) {
                 System.out.println("Refund failed: account does not match original payment method.");
+                conn.rollback();
                 return;
             }
 
-            PreparedStatement pstmt3 = conn.prepareStatement(deleteReservation);
-            pstmt3.setInt(1, reservationId);
-            pstmt3.executeUpdate();
+            try (PreparedStatement deletePay = conn.prepareStatement(deletePayment);
+                 PreparedStatement deleteRes = conn.prepareStatement(deleteReservation)) {
 
-            System.out.println("\n===== REFUND SUCCESS =====");
-            System.out.println("Amount Refunded: ₱" + amount);
-            System.out.println("Method: " + method);
-            System.out.println("Refunded To: " + maskAccount(refundAccount));
-            System.out.println("==========================");
+                deletePay.setInt(1, reservationId);
+                deletePay.executeUpdate();
 
-            System.out.println("Reservation cancelled successfully.");
+                deleteRes.setInt(1, reservationId);
+                deleteRes.executeUpdate();
+
+                conn.commit();
+
+                System.out.println("\n===== REFUND SUCCESS =====");
+                System.out.println("Amount Refunded: ₱" + amount);
+                System.out.println("Method: " + method);
+                System.out.println("Refunded To: " + maskAccount(refundAccount));
+                System.out.println("==========================");
+
+                System.out.println("Reservation cancelled successfully.");
+            }
 
         } catch (Exception e) {
             System.out.println("ERROR: " + e.getMessage());
@@ -331,14 +431,14 @@ public class Repository {
 
                 String formattedId = String.format("%04d", reservationId);
 
-                LocalDate estimatedDate = null;
+                LocalDate estimatedDate;
 
                 try {
                     java.sql.Date sqlDate = rs.getDate("estimatedAvailableDate");
                     if (sqlDate != null) {
                         estimatedDate = sqlDate.toLocalDate();
                     } else {
-                        estimatedDate = LocalDate.now().plusDays(7L * position);
+                        estimatedDate = LocalDate.now().plusDays(position);
                     }
                 } catch (Exception e) {
                     try {
@@ -346,10 +446,10 @@ public class Repository {
                         if (ts != null) {
                             estimatedDate = ts.toLocalDateTime().toLocalDate();
                         } else {
-                            estimatedDate = LocalDate.now().plusDays(7L * position);
+                            estimatedDate = LocalDate.now().plusDays(position);
                         }
                     } catch (Exception ex) {
-                        estimatedDate = LocalDate.now().plusDays(7L * position);
+                        estimatedDate = LocalDate.now().plusDays(position);
                     }
                 }
 
@@ -371,7 +471,6 @@ public class Repository {
             System.out.println("ERROR: " + e.getMessage());
         }
     }
-
 
     public void viewReferenceMaterials() {
 
@@ -514,21 +613,29 @@ public class Repository {
                 "SELECT amount, method, accountNumber FROM referencematerial_payments " +
                         "WHERE patronId = (SELECT patronId FROM reference_reservations WHERE reservationId = ?)";
 
-        String deleteSql =
+        String deletePaymentSql =
+                "DELETE FROM referencematerial_payments " +
+                        "WHERE patronId = (SELECT patronId FROM reference_reservations WHERE reservationId = ?)";
+
+        String deleteReservationSql =
                 "DELETE FROM reference_reservations WHERE reservationId = ?";
 
-        String updateSql =
+        String updateMaterialSql =
                 "UPDATE reference_materials SET status='AVAILABLE' WHERE materialId=?";
 
         try (Connection conn = connect()) {
 
             conn.setAutoCommit(false);
 
-            // 1. CHECK RESERVATION
-            try (PreparedStatement pstmt1 = conn.prepareStatement(checkSql)) {
+            int materialId;
+            double amount;
+            String method;
+            String originalAccount;
 
-                pstmt1.setInt(1, reservationId);
-                ResultSet rs = pstmt1.executeQuery();
+            try (PreparedStatement pstmt = conn.prepareStatement(checkSql)) {
+
+                pstmt.setInt(1, reservationId);
+                ResultSet rs = pstmt.executeQuery();
 
                 if (!rs.next()) {
                     System.out.println("Reservation not found.");
@@ -543,38 +650,32 @@ public class Repository {
                     conn.rollback();
                     return;
                 }
+
+                materialId = rs.getInt("materialId");
             }
 
-            // 2. GET PAYMENT INFO
-            double amount = 0;
-            String method = "";
-            String originalAccount = "";
-            int materialId = 0;
+            try (PreparedStatement pstmt = conn.prepareStatement(getPayment)) {
 
-            try (PreparedStatement pstmt2 = conn.prepareStatement(getPayment)) {
+                pstmt.setInt(1, reservationId);
+                ResultSet rs = pstmt.executeQuery();
 
-                pstmt2.setInt(1, reservationId);
-                ResultSet payRs = pstmt2.executeQuery();
-
-                if (!payRs.next()) {
+                if (!rs.next()) {
                     System.out.println("Payment record not found.");
                     conn.rollback();
                     return;
                 }
 
-                amount = payRs.getDouble("amount");
-                method = payRs.getString("method");
-                originalAccount = payRs.getString("accountNumber");
+                amount = rs.getDouble("amount");
+                method = rs.getString("method");
+                originalAccount = rs.getString("accountNumber");
             }
 
-            // 3. SAFE NULL CHECK
             if (originalAccount == null || refundAccount == null) {
                 System.out.println("Refund failed: missing account information.");
                 conn.rollback();
                 return;
             }
 
-            // 4. SAFE MATCH (suffix-based like your reference)
             String originalSuffix = originalAccount.length() >= 3
                     ? originalAccount.substring(originalAccount.length() - 3)
                     : originalAccount;
@@ -585,27 +686,18 @@ public class Repository {
                 return;
             }
 
-            // 5. GET MATERIAL ID (for update)
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    "SELECT materialId FROM reference_reservations WHERE reservationId=?")) {
+            try (PreparedStatement deletePayment = conn.prepareStatement(deletePaymentSql);
+                 PreparedStatement deleteReservation = conn.prepareStatement(deleteReservationSql);
+                 PreparedStatement updateMaterial = conn.prepareStatement(updateMaterialSql)) {
 
-                stmt.setInt(1, reservationId);
-                ResultSet rs2 = stmt.executeQuery();
+                deletePayment.setInt(1, reservationId);
+                deletePayment.executeUpdate();
 
-                if (rs2.next()) {
-                    materialId = rs2.getInt("materialId");
-                }
-            }
+                deleteReservation.setInt(1, reservationId);
+                deleteReservation.executeUpdate();
 
-            // 6. DELETE + UPDATE
-            try (PreparedStatement delete = conn.prepareStatement(deleteSql);
-                 PreparedStatement update = conn.prepareStatement(updateSql)) {
-
-                delete.setInt(1, reservationId);
-                delete.executeUpdate();
-
-                update.setInt(1, materialId);
-                update.executeUpdate();
+                updateMaterial.setInt(1, materialId);
+                updateMaterial.executeUpdate();
 
                 conn.commit();
 
@@ -625,7 +717,12 @@ public class Repository {
 
     public void viewReservedReferenceMaterialStatus(int patronId) {
 
-        String sql = "SELECT reservationId, materialId, status FROM reference_reservations WHERE patronId=?";
+        String sql =
+                "SELECT reservationId, materialId, status, " +
+                        "(SELECT COUNT(*) FROM reference_reservations r2 " +
+                        " WHERE r2.materialId = r.materialId AND r2.reservationId <= r.reservationId) AS position " +
+                        "FROM reference_reservations r " +
+                        "WHERE r.patronId = ?";
 
         try (Connection conn = connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -636,13 +733,27 @@ public class Repository {
 
                 boolean found = false;
 
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMMM d, yyyy");
+
                 while (rs.next()) {
                     found = true;
 
+                    int reservationId = rs.getInt("reservationId");
+                    int materialId = rs.getInt("materialId");
+                    String status = rs.getString("status");
+                    int position = rs.getInt("position");
+
+                    LocalDate estimatedDate = LocalDate.now().plusDays(position);
+
+                    String formattedDate = estimatedDate.format(formatter);
+                    String formattedId = String.format("%04d", reservationId);
+
                     System.out.println(
-                            "Reservation ID: " + rs.getInt("reservationId") +
-                                    " | Material ID: " + rs.getInt("materialId") +
-                                    " | Status: " + rs.getString("status")
+                            "Reservation #" + formattedId +
+                                    " | Material ID: " + materialId +
+                                    " | Status: " + status +
+                                    " | Position: " + position +
+                                    " | Estimated Available: " + formattedDate
                     );
                 }
 
