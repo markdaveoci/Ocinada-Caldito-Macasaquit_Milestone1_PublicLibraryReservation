@@ -47,59 +47,120 @@ public class Main {
         Scanner scanner = new Scanner(System.in);
         Repository repo = new Repository();
 
-        System.out.println("\nPUBLIC LIBRARY SYSTEM" + "\nWelcome to the Public Library System. Visitors are required to check in upon arrival.\n");
-        System.out.println("[1] Check-in Visitor");
+        boolean isCheckedIn = false;
+        boolean running = true;
 
-        System.out.print("Choose: ");
-        int choice1 = scanner.nextInt();
-        scanner.nextLine();
+        while (running) {
 
-        switch (choice1) {
-            case 1:
-                boolean validVisitor = false;
+            System.out.println("\nPUBLIC LIBRARY SYSTEM");
+            System.out.println("Welcome to the Public Library System.\n");
+            System.out.println("[1] Check-in Visitor");
+            System.out.println("[2] Admin Log in");
+            System.out.println("[3] Proceed to Circulation Desk");
+            System.out.println("[4] Exit System");
 
-                while (!validVisitor) {
-                    System.out.println("\nCHECK IN VISITOR");
+            System.out.print("Choose: ");
+            int choice1 = scanner.nextInt();
+            scanner.nextLine();
 
-                    System.out.print("Visitor Name: ");
-                    String name = scanner.nextLine();
+            switch (choice1) {
 
-                    System.out.print("Address: ");
-                    String address = scanner.nextLine();
+                case 1:
+                    boolean validVisitor = false;
 
-                    System.out.print("Purpose of Visit: ");
-                    String purpose = scanner.nextLine();
+                    while (!validVisitor) {
 
-                    if (name.isEmpty() || address.isEmpty() || purpose.isEmpty()) {
-                        System.out.println("\nCheck-in failed. Please fill in all fields.\n");
-                    } else {
-                        Visitor visitor = new Visitor.VisitorBuilder()
-                                .setName(name)
-                                .setAddress(address)
-                                .setPurpose(purpose)
-                                .build();
+                        System.out.println("\nCHECK IN VISITOR");
 
-                        System.out.println("\nENTRY CONFIRMATION");
-                        System.out.println("Name: " + name);
-                        System.out.println("Address: " + address);
-                        System.out.println("Purpose: " + purpose);
-                        System.out.println("Confirmation: Complete information.");
-                        System.out.println("Status: IN");
+                        System.out.print("Visitor Name: ");
+                        String name = scanner.nextLine();
 
-                        System.out.println("\nVisitor check-in successful. You may now proceed to the Circulation Desk.");
-                        System.out.print("\n");
+                        System.out.print("Address: ");
+                        String address = scanner.nextLine();
 
-                        int visitorId = repo.checkInVisitor(visitor);
+                        System.out.print("Purpose of Visit: ");
+                        String purpose = scanner.nextLine();
 
-                        System.out.println("Visitor ID: " + visitorId);
+                        if (name.isEmpty() || address.isEmpty() || purpose.isEmpty()) {
+                            System.out.println("\nCheck-in failed. Please fill in all fields.\n");
+                        } else {
 
-                        validVisitor = true;
+                            Visitor visitor = new Visitor.VisitorBuilder()
+                                    .setName(name)
+                                    .setAddress(address)
+                                    .setPurpose(purpose)
+                                    .build();
+
+                            int visitorId = repo.checkInVisitor(visitor);
+
+                            System.out.println("\nCheck-in successful!");
+                            System.out.println("Visitor ID: " + visitorId);
+
+                            isCheckedIn = true;
+                            validVisitor = true;
+                        }
                     }
-                }
-                break;
+                    break;
 
-            default:
-                System.out.println("Invalid choice.");
+                case 2:
+                    System.out.print("\nAdmin Username: ");
+                    String username = scanner.nextLine();
+
+                    System.out.print("Admin Password: ");
+                    String password = scanner.nextLine();
+
+                    if (username.equals("admin") && password.equals("1234")) {
+
+                        boolean adminMenu = true;
+
+                        while (adminMenu) {
+
+                            System.out.println("\n===== ADMIN PANEL =====");
+                            System.out.println("[1] View Income Statement");
+                            System.out.println("[2] Exit Admin Panel");
+
+                            System.out.print("Choose: ");
+                            int adminChoice = scanner.nextInt();
+                            scanner.nextLine();
+
+                            switch (adminChoice) {
+
+                                case 1:
+                                    repo.viewIncomeStatement();
+                                    break;
+
+                                case 2:
+                                    adminMenu = false;
+                                    break;
+
+                                default:
+                                    System.out.println("Invalid choice.");
+                            }
+                        }
+
+                    } else {
+                        System.out.println("Invalid admin credentials.");
+                    }
+                    break;
+
+                case 3:
+
+                    if (!isCheckedIn) {
+                        System.out.println("\nACCESS DENIED");
+                        System.out.println("Please check-in first before accessing Circulation Desk.");
+                    } else {
+                        running = false;
+                    }
+                    break;
+
+                case 4:
+                    System.out.println("System shutting down...");
+                    System.exit(0);
+                    break;
+
+                default:
+                    System.out.println("Invalid choice.");
+            }
         }
 
         System.out.println("\nCIRCULATION DESK" + "\nWelcome to the Circulation Desk. All visitors are required to complete registration before accessing the Public Library Reservation System.\n");
@@ -110,6 +171,7 @@ public class Main {
         scanner.nextLine();
 
         switch (choice2) {
+
             case 1:
 
                 boolean validPatron = false;
@@ -143,9 +205,9 @@ public class Main {
                 System.out.println("Invalid choice.");
         }
 
-        boolean running = true;
+        boolean running2 = true;
 
-        while (running) {
+        while (running2) {
 
             System.out.println("\nPUBLIC LIBRARY RESERVATION SYSTEM");
             System.out.println("Welcome, Patron \n");
@@ -420,7 +482,7 @@ public class Main {
                 case 7:
                     System.out.print("\n");
                     System.out.println("Patron account successfully logged-out. You may now proceed for check-out.");
-                    running = false;
+                    running2 = false;
                     break;
 
                 default:

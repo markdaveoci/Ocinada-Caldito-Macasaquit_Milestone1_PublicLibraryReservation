@@ -30,18 +30,23 @@ public class Repository {
         String patrons = "CREATE TABLE IF NOT EXISTS patrons(" +
                 "patronId INTEGER PRIMARY KEY," +
                 "name TEXT," +
-                "address TEXT,";
+                "address TEXT," +
+                "membershipType TEXT," +
+                "status TEXT)";
 
         String books = "CREATE TABLE IF NOT EXISTS books(" +
                 "bookId INTEGER PRIMARY KEY AUTOINCREMENT," +
                 "title TEXT," +
                 "author TEXT," +
+                "price REAL," +
                 "available INTEGER)";
 
         String reservations = "CREATE TABLE IF NOT EXISTS reservations(" +
                 "reservationId INTEGER PRIMARY KEY AUTOINCREMENT," +
                 "patronId INTEGER," +
-                "bookId INTEGER,";
+                "bookId INTEGER," +
+                "status TEXT," +
+                "estimatedAvailableDate DATE)";
 
         String referenceMaterials = "CREATE TABLE IF NOT EXISTS reference_materials(" +
                 "materialId INTEGER PRIMARY KEY AUTOINCREMENT," +
@@ -54,6 +59,22 @@ public class Repository {
                 "materialId INTEGER," +
                 "status TEXT)";
 
+        String payments = "CREATE TABLE IF NOT EXISTS payments(" +
+                "paymentId INTEGER PRIMARY KEY AUTOINCREMENT," +
+                "patronId INTEGER," +
+                "amount REAL," +
+                "method TEXT," +
+                "paymentDate DATE," +
+                "accountNumber TEXT)";
+
+        String refPayments = "CREATE TABLE IF NOT EXISTS referencematerial_payments(" +
+                "paymentId INTEGER PRIMARY KEY AUTOINCREMENT," +
+                "patronId INTEGER," +
+                "amount REAL," +
+                "method TEXT," +
+                "paymentDate DATE," +
+                "accountNumber TEXT)";
+
         try (Connection conn = connect();
              Statement stmt = conn.createStatement()) {
 
@@ -64,8 +85,11 @@ public class Repository {
             stmt.execute(referenceMaterials);
             stmt.execute(refReservations);
 
+            stmt.execute(payments);
+            stmt.execute(refPayments);
+
         } catch (Exception e) {
-            System.out.println(e.getMessage());
+            System.out.println("DB ERROR: " + e.getMessage());
         }
     }
 
@@ -122,6 +146,45 @@ public class Repository {
         } catch (Exception e) {
             System.out.println(e.getMessage());
             return -1;
+        }
+    }
+
+    public void viewIncomeStatement() {
+
+        String bookIncome =
+                "SELECT SUM(amount) AS total FROM payments";
+
+        String refIncome =
+                "SELECT SUM(amount) AS total FROM referencematerial_payments";
+
+        try (Connection conn = connect()) {
+
+            double totalBook = 0;
+            double totalRef = 0;
+
+            try (PreparedStatement ps = conn.prepareStatement(bookIncome);
+                 ResultSet rs = ps.executeQuery()) {
+
+                if (rs.next()) totalBook = rs.getDouble("total");
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(refIncome);
+                 ResultSet rs = ps.executeQuery()) {
+
+                if (rs.next()) totalRef = rs.getDouble("total");
+            }
+
+            double grandTotal = totalBook + totalRef;
+
+            System.out.println("\n===== INCOME STATEMENT =====");
+            System.out.println("Book Reservations Income: ₱" + totalBook);
+            System.out.println("Reference Materials Income: ₱" + totalRef);
+            System.out.println("----------------------------");
+            System.out.println("TOTAL INCOME: ₱" + grandTotal);
+            System.out.println("============================");
+
+        } catch (Exception e) {
+            System.out.println("Error generating income statement: " + e.getMessage());
         }
     }
 
